@@ -24,7 +24,7 @@ def get_fm_buttons(callbacks):
         QPushButton('Generate one Sweep'),
         QPushButton('Reboot Device'),
         QPushButton('Jump to Another Image'),
-        QPushButton('Load New Image'),
+        QPushButton('Upload New Firmware'),
 
         QPushButton('Get Whole Sweep Table FPGA'),
         QPushButton('Set Whole Sweep Table FPGA'),
@@ -53,7 +53,7 @@ def get_fm_buttons(callbacks):
     buttons[17].clicked.connect(lambda: callbacks['gen_Sweep']())
     buttons[18].clicked.connect(lambda: callbacks['reboot_device']())
     buttons[19].clicked.connect(lambda: get_input("jump_to_image", callbacks['jump_to_image']))
-    buttons[20].clicked.connect(lambda: callbacks['load_new_image']())
+    buttons[20].clicked.connect(lambda: callbacks['upload_firmware']())
     buttons[21].clicked.connect(lambda: get_input("get_whole_swt_FPGA", callbacks['get_whole_swt_FPGA']))
     buttons[22].clicked.connect(lambda: get_input("set_whole_swt_FPGA", callbacks['set_whole_swt_FPGA']))
 

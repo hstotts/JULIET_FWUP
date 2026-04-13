@@ -29,9 +29,11 @@ class Function_ID(Enum):
     COPY_SWT_FRAM_TO_FPGA                   = 0xE0
     GET_PERIOD_HK                           = 0xE9
 
-    REBOOT_DEVICE_ID                        = 0xF3
-    JUMP_TO_IMAGE                           = 0xF4
-    LOAD_TO_IMAGE                           = 0xF5 
+    REBOOT_DEVICE_ID                        = 0xF0
+    JUMP_TO_IMAGE                           = 0xF1
+    FWUP_BEGIN_ID                           = 0xF3  # declare image size/CRC, arm SRAM staging buffer
+    FWUP_SRAM_WRITE_ID                      = 0xF4  # stream image chunks to SRAM
+    FWUP_FLASH_ID                           = 0xF5  # verify CRC, erase, program flash, update FRAM
     SET_PERIOD_HK                           = 0xF2
     GET_SENSOR_DATA                         = 0xF9 
 
@@ -50,7 +52,11 @@ class Argument_ID(Enum):
     
     MACRO_SUBOP_ARG_ID                      = 0x0B
 
-    IMAGE_INDEX                             = 0x0C
+    IMG_ID_ARG_ID                           = 0x20  # u8  – FRAM slot index (matches FWUP_Arg_ID_t)
+    IMG_SIZE_ARG_ID                         = 0x21  # u32 LE – total image bytes
+    IMG_CRC32_ARG_ID                        = 0x22  # u32 LE – CRC-32 of image
+    IMG_ADDR_ARG_ID                         = 0x23  # u32 LE – SRAM or flash address
+    BANK_ID_ARG_ID                          = 0x24  # u8  – 0=Bank1, 1=Bank2
 
 class Command_data(Enum):
     
@@ -180,16 +186,13 @@ def get_REBOOT_DEVICE():
 
 def get_JUMP_TO_IMAGE():
     return [
-        Function_ID.JUMP_TO_IMAGE.value, 
+        Function_ID.JUMP_TO_IMAGE_ID.value,   # 0xF1
         0x01,
-        Argument_ID.IMAGE_INDEX.value, Global_Variables.IMAGE_INDEX & 0xFF,
+        Argument_ID.IMG_ID_ARG_ID.value,      # 0x20
+        Global_Variables.IMAGE_INDEX & 0xFF,
     ]
 
-def get_LOAD_NEW_IMAGE():
-    return [
-        Function_ID.LOAD_TO_IMAGE.value, 
-        0x00
-    ]
+
 
 
 

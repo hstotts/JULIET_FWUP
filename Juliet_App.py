@@ -3,6 +3,7 @@ import serial
 import threading
 import pandas as pd
 import datetime
+import time
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                              QTextEdit, QPushButton, QListWidget, QLabel, QSplitter, QListWidgetItem, QGridLayout)
 
@@ -19,6 +20,7 @@ from SubWindow import *
 from HK_Buttons import *
 from SweepTable_MCU_Buttons import *
 from FM_Buttons import *
+from Firmware_Upload import FirmwareUploadDialog
 
 ENABLE_CB = False
 
@@ -30,6 +32,8 @@ class SerialApp(QWidget):
         self.init_serial()
         self.Sweep_Tables = Sweep_Tables()
         self.macro_sweep = MacroSweepCollector()
+        self.uploading = False  # set True during OTA upload to pause the serial reader
+
 
     def init_ui(self):
         self.setWindowTitle("JULIET")
@@ -189,9 +193,7 @@ class SerialApp(QWidget):
                             sub_service_id=PUS_FM_Subtype_ID.FM_PERFORM_FUNCTION.value,
                             command_data=get_JUMP_TO_IMAGE()),
             
-            'load_new_image' : lambda: self.send_command(service_id=PUS_Service_ID.FUNCTION_MANAGEMNET_ID.value,
-                            sub_service_id=PUS_FM_Subtype_ID.FM_PERFORM_FUNCTION.value,
-                            command_data=get_LOAD_NEW_IMAGE()),
+            'upload_firmware' : lambda: self._open_firmware_upload(),
             
             'get_whole_swt_FPGA' : lambda: self.GetSweepLoop(),
             'set_whole_swt_FPGA' : lambda: self.SetSweepLoop(),
@@ -233,6 +235,10 @@ class SerialApp(QWidget):
         self.send_command(service_id=PUS_Service_ID.FUNCTION_MANAGEMNET_ID.value,
                             sub_service_id=PUS_FM_Subtype_ID.FM_PERFORM_FUNCTION.value,
                             command_data=get_FM_DISABLE_CB_MODE())
+    def _open_firmware_upload(self):
+        """Open the OTA firmware upload dialog, sharing the active serial port."""
+        dlg = FirmwareUploadDialog(parent=self, ser=self.ser)
+        dlg.exec_()
     def GetSweepLoop(self):
         i=0
         while i<256:
