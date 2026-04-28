@@ -28,7 +28,7 @@ from img2obc import (
     build_fwup_begin,
     build_fwup_sram_write,
     build_fwup_flash,
-    build_jump_to_image,
+    #build_jump_to_image,
     build_spp,
     build_cobs_frame,
     crc32,
@@ -81,7 +81,7 @@ FLASH_SLOTS = {
 }
 
 # Ceiling for the SRAM staging buffer (must match SRAM_FW_STAGING_SIZE in memory_map.h)
-STAGING_MAX_BYTES = 0xA000   # 40 KB
+STAGING_MAX_BYTES = 0xC800   # 50 KB
 
 
 # =============================================================================
@@ -159,15 +159,15 @@ class _UploadWorker(QThread):
             self.finished.emit(False, "FWUP_FLASH timed out.")
             return
 
-        # Step 4 — JUMP_TO_IMAGE
-        self.log.emit("\n[STEP 4] JUMP_TO_IMAGE")
-        self.progress.emit(95)
-        if not self._send(build_jump_to_image(self.img_id), "JUMP"):
-            self.finished.emit(False, "JUMP_TO_IMAGE timed out.")
-            return
+        # Step 4 — JUMP_TO_IMAGE - can be added for simplicity with Juliet
+        # self.log.emit("\n[STEP 4] JUMP_TO_IMAGE")
+        # self.progress.emit(95)
+        # if not self._send(build_jump_to_image(self.img_id), "JUMP"):
+            # self.finished.emit(False, "JUMP_TO_IMAGE timed out.")
+            # return
 
         self.progress.emit(100)
-        self.finished.emit(True, "Firmware update complete.")
+        self.finished.emit(True, "Image uploaded and flashed. Use 'Jump to Another Image' to boot it.")
 
 
 # =============================================================================
@@ -253,9 +253,12 @@ class FirmwareUploadDialog(QDialog):
         btn_row = QHBoxLayout()
         self.upload_btn = QPushButton("Upload")
         self.upload_btn.clicked.connect(self._start_upload)
+        self.save_log_btn = QPushButton("Save Log")
+        self.save_log_btn.clicked.connect(self._save_log)
         self.close_btn = QPushButton("Close")
         self.close_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.upload_btn)
+        btn_row.addWidget(self.save_log_btn)
         btn_row.addWidget(self.close_btn)
         root.addLayout(btn_row)
 
@@ -304,6 +307,13 @@ class FirmwareUploadDialog(QDialog):
         self._on_slot_changed(self.slot_combo.currentIndex())
         self._log(f"Loaded: {path}  ({len(self._img)} B, {len(self._img) / 1024:.1f} KB)")
 
+    def _save_log(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save log", "upload_log.txt", "Text files (*.txt);;All files (*)"
+        )
+        if path:
+            with open(path, "w") as f:
+                f.write(self.log_edit.toPlainText())
     # ------------------------------------------------------------------
     # Upload
     # ------------------------------------------------------------------
@@ -349,6 +359,8 @@ class FirmwareUploadDialog(QDialog):
 
     def _log(self, msg: str):
         self.log_edit.append(msg)
+        # Keep the latest line visible but don't jump around during fast output
+        self.log_edit.ensureCursorVisible()
 
     def _on_finished(self, success: bool, msg: str):
         if self.parent() and hasattr(self.parent(), "uploading"):

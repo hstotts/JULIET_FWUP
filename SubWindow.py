@@ -200,15 +200,48 @@ class InputWindow(QWidget):
             self.save_button.clicked.connect(lambda: self.save_input(description, callback))
 
         elif description == "jump_to_image":
-            self.input_1_label = QLabel("Index of desired firmware image: ")
-            self.input_1_box = QLineEdit()
-            self.save_button = QPushButton("Send Command")
+            # Slot picker mirrors FLASH_SLOTS in FirmwareUpload.py
+            JUMP_SLOTS = {
+                1: (0x08000000, 0, "S0",   16),
+                2: (0x08004000, 0, "S1",   16),
+                3: (0x08008000, 0, "S2",   16),
+                4: (0x0800C000, 0, "S3",   16),
+                5: (0x08010000, 0, "S4",   64),
+                6: (0x08020000, 0, "S5",  128),
+                7: (0x08040000, 0, "S6",  128),
+                8: (0x08060000, 0, "S7",  128),
+                9: (0x08080000, 0, "S8",  128),
+                10: (0x080A0000, 0, "S9",  128),
+                11: (0x080C0000, 0, "S10", 128),
+                12: (0x080E0000, 0, "S11", 128),
+                13: (0x08100000, 1, "S12",  16),
+                14: (0x08104000, 1, "S13",  16),
+                15: (0x08108000, 1, "S14",  16),
+                16: (0x0810C000, 1, "S15",  16),
+                17: (0x08110000, 1, "S16",  64),
+                18: (0x08120000, 1, "S17", 128),
+                19: (0x08140000, 1, "S18", 128),
+                20: (0x08160000, 1, "S19", 128),
+                21: (0x08180000, 1, "S20", 128),
+                22: (0x081A0000, 1, "S21", 128),
+                23: (0x081C0000, 1, "S22", 128),
+                24: (0x081E0000, 1, "S23", 128),
+            }
+            self.input_1_label = QLabel("Target slot:")
+            self.input_1_box = QComboBox()
+            for slot_idx, (addr, bank, sec, size_kb) in sorted(JUMP_SLOTS.items()):
+                self.input_1_box.addItem(
+                    f"Slot {slot_idx:2d}  {sec:3s}  {size_kb:3d} KB  "
+                    f"Bank{bank + 1}  @ 0x{addr:08X}",
+                    userData=slot_idx,
+                )
+            self.save_button = QPushButton("Jump")
 
             layout.addWidget(self.input_1_label)
             layout.addWidget(self.input_1_box)
+            layout.addWidget(self.save_button)
 
             self.save_button.clicked.connect(lambda: self.save_input(description, callback))
-            layout.addWidget(self.save_button)
         
 
         elif description == "oneshot_HK":
@@ -368,16 +401,13 @@ class InputWindow(QWidget):
                 callback()
 
             elif description == "jump_to_image":
-                Image_index = self.input_1_box.text()
-                Global_Variables.IMAGE_INDEX = int(Image_index)
+                Global_Variables.IMAGE_INDEX = self.input_1_box.currentData()
                 callback()
-
 
             elif description == "oneshot_HK":
                 hk_id = self.input_1_box.text()
                 Global_Variables.HK_ID = int(hk_id)
                 callback()
-
 
             elif description == "set_period_HK":
                 hk_id = self.input_1_box.text()

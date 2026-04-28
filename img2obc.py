@@ -41,14 +41,14 @@ FLASH_ADDR    = 0x08040000       # destination flash address (must be sector-ali
 FLASH_BANK_ID = 0                # 0 = Bank1, 1 = Bank2
 
 # Must match SRAM_FW_STAGING_BASE in memory_map.h
-SRAM_STAGE_BASE = 0x20071000
+SRAM_STAGE_BASE = 0x20068800 
 
 # Max image data bytes per FWUP_SRAM_WRITE command.
 # Ceiling: SPP total packet < 256 B. At 180 B chunk the encoded COBS frame is ~220 B.
 CHUNK_SIZE = 180
 
 # Inter-packet delay (seconds).  Increase if the uC falls behind at high baud.
-INTER_PACKET_DELAY_S = 0.002
+INTER_PACKET_DELAY_S = 0.05
 
 
 # =============================================================================

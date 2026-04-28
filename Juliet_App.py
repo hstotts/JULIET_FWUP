@@ -265,7 +265,7 @@ class SerialApp(QWidget):
                           command_data=get_MACRO_SWEEP_BIAS_CONFIG(Global_Variables.MACRO_SUBOP))
 
     def init_serial(self):
-        self.ser = serial.Serial('COM12', baudrate=115200, timeout=1)
+        self.ser = serial.Serial('/dev/tty.usbserial-FT9JJ84E', baudrate=115200, timeout=10.0)
         self.read_thread = threading.Thread(target=self.read_serial_data, daemon=True)
         self.read_thread.start()
 
