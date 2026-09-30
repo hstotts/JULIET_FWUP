@@ -31,9 +31,11 @@ class Function_ID(Enum):
 
     REBOOT_DEVICE_ID                        = 0xF0
     JUMP_TO_IMAGE                           = 0xF1
-    FWUP_BEGIN_ID                           = 0xF3  # declare image size/CRC, arm SRAM staging buffer
-    FWUP_SRAM_WRITE_ID                      = 0xF4  # stream image chunks to SRAM
-    FWUP_FLASH_ID                           = 0xF5  # verify CRC, erase, program flash, update FRAM
+    FWUP_BEGIN_ID                           = 0xF3
+    FWUP_SRAM_WRITE_ID                      = 0xF4
+    FWUP_FLASH_ID                           = 0xF5
+    GET_BOOT_METADATA_ID                    = 0xF6
+    GET_VERSION_ID                          = 0xF7
     SET_PERIOD_HK                           = 0xF2
     GET_SENSOR_DATA                         = 0xF9 
 
@@ -52,11 +54,12 @@ class Argument_ID(Enum):
     
     MACRO_SUBOP_ARG_ID                      = 0x0B
 
-    IMG_ID_ARG_ID                           = 0x20  # u8  – FRAM slot index (matches FWUP_Arg_ID_t)
+    IMG_ID_ARG_ID                           = 0x20  # u8 – FRAM slot index
     IMG_SIZE_ARG_ID                         = 0x21  # u32 LE – total image bytes
     IMG_CRC32_ARG_ID                        = 0x22  # u32 LE – CRC-32 of image
-    IMG_ADDR_ARG_ID                         = 0x23  # u32 LE – SRAM or flash address
+    IMG_ADDR_ARG_ID                         = 0x23  # u32 LE – flash address
     BANK_ID_ARG_ID                          = 0x24  # u8  – 0=Bank1, 1=Bank2
+    SRAM_DEST_ADDR_ARG_ID                   = 0x27  # u32 LE – SRAM staging destination
 
 class Command_data(Enum):
     
@@ -178,21 +181,53 @@ def get_FM_GEN_SWEEP():
         0x00
         ]
 
-def get_REBOOT_DEVICE():
+def get_GET_VERSION():
     return [
-        Function_ID.REBOOT_DEVICE_ID.value, 
-        0x00
-        ]
-
-def get_JUMP_TO_IMAGE():
-    return [
-        Function_ID.JUMP_TO_IMAGE_ID.value,   # 0xF1
-        0x01,
-        Argument_ID.IMG_ID_ARG_ID.value,      # 0x20
-        Global_Variables.IMAGE_INDEX & 0xFF,
+        Function_ID.GET_VERSION_ID.value,
+        0x00,
     ]
 
 
+def get_GET_BOOT_METADATA(slot_id=None):
+    """Build a metadata summary request, or a detail request for one slot."""
+    if slot_id is None:
+        return [
+            Function_ID.GET_BOOT_METADATA_ID.value,
+            0x00,
+        ]
+
+    if not 1 <= slot_id <= 24:
+        raise ValueError("Boot metadata slot must be in the range 1..24")
+
+    return [
+        Function_ID.GET_BOOT_METADATA_ID.value,
+        0x01,
+        Argument_ID.IMG_ID_ARG_ID.value,
+        slot_id & 0xFF,
+    ]
+
+
+def get_REBOOT_DEVICE():
+    return [
+        Function_ID.REBOOT_DEVICE_ID.value,
+        0x00,
+    ]
+
+
+def get_JUMP_TO_IMAGE():
+    flash_addr = Global_Variables.FLASH_ADDR
+
+    return [
+        Function_ID.JUMP_TO_IMAGE.value,
+        0x02,
+        Argument_ID.IMG_ID_ARG_ID.value,
+        Global_Variables.IMAGE_INDEX & 0xFF,
+        Argument_ID.IMG_ADDR_ARG_ID.value,
+        (flash_addr >> 0) & 0xFF,
+        (flash_addr >> 8) & 0xFF,
+        (flash_addr >> 16) & 0xFF,
+        (flash_addr >> 24) & 0xFF,
+    ]
 
 
 
@@ -236,4 +271,4 @@ def get_MACRO_SWEEP_BIAS_CONFIG(subop):
         Function_ID.MACRO_SWEEP_BIAS_CONFIG.value,
         0x01,
         Argument_ID.MACRO_SUBOP_ARG_ID.value, subop & 0xFF
-    ] 
+    ]

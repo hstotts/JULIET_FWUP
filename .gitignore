@@ -5,6 +5,7 @@ __pycache__/
 # Ignore virtual environment
 venv/
 env/
+romeo_venv/
 
 # Ignore logs and temp files
 *.log

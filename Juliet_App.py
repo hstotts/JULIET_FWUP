@@ -4,8 +4,10 @@ import threading
 import pandas as pd
 import datetime
 import time
+import Global_Variables
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-                             QTextEdit, QPushButton, QListWidget, QLabel, QSplitter, QListWidgetItem, QGridLayout)
+                             QTextEdit, QPushButton, QListWidget, QLabel, QSplitter,
+                             QListWidgetItem, QGridLayout, QGroupBox, QSizePolicy)
 
 from PyQt5.QtGui import QBrush, QColor
 from PyQt5.QtCore import QTimer, Qt
@@ -24,15 +26,44 @@ from Firmware_Upload import FirmwareUploadDialog
 
 ENABLE_CB = False
 
+_SPP_CRC16 = Calculator(Crc16.IBM_3740)
+
+
+def decode_cobs_spp_frame(frame):
+    """Decode one complete COBS frame and validate its SPP envelope."""
+    frame = bytes(frame)
+    if not frame or frame[-1] != 0x00:
+        raise ValueError("Missing COBS frame delimiter")
+
+    decoded = cobs.decode(frame[:-1])
+    if len(decoded) < 8:
+        raise ValueError("SPP packet is shorter than its header and CRC")
+
+    declared_data_length = (decoded[4] << 8) | decoded[5]
+    expected_packet_length = 6 + declared_data_length + 1
+    if len(decoded) != expected_packet_length:
+        raise ValueError(
+            f"SPP length mismatch: header declares {expected_packet_length} "
+            f"bytes, received {len(decoded)}"
+        )
+
+    received_crc = int.from_bytes(decoded[-2:], "big")
+    calculated_crc = _SPP_CRC16.checksum(decoded[:-2])
+    if received_crc != calculated_crc:
+        raise ValueError(
+            f"SPP CRC mismatch: received 0x{received_crc:04X}, "
+            f"calculated 0x{calculated_crc:04X}"
+        )
+
+    return decoded
+
 class SerialApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.messages = []  # Stores tuples of (raw_bytes, spp_header, pus_header)
         self.init_ui()
         self.init_serial()
         self.Sweep_Tables = Sweep_Tables()
         self.macro_sweep = MacroSweepCollector()
-        self.uploading = False  # set True during OTA upload to pause the serial reader
 
 
     def init_ui(self):
@@ -58,6 +89,37 @@ class SerialApp(QWidget):
         self.clear_button = QPushButton('Clear Console')
         self.test_button = QPushButton('Test Command')
 
+        command_group = QGroupBox()
+        command_layout = QHBoxLayout(command_group)
+        command_layout.setContentsMargins(6, 6, 6, 6)
+        command_layout.setSpacing(8)
+        command_buttons = (
+            self.test_button,
+            self.hk_button,
+            self.fm_button,
+            self.sweep_tables,
+        )
+        for button in command_buttons:
+            button.setAttribute(Qt.WA_LayoutUsesWidgetRect, True)
+            command_layout.addWidget(button)
+        command_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self.clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #493b3b;
+                color: #f2e8e8;
+                border: 1px solid #655050;
+                border-radius: 5px;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background-color: #574343;
+            }
+            QPushButton:pressed {
+                background-color: #3d3030;
+            }
+        """)
+
         # Connect main buttons to actions
         self.test_button.clicked.connect(
             lambda: self.send_command(service_id=PUS_Service_ID.TEST_SERVICE_ID.value,
@@ -68,11 +130,8 @@ class SerialApp(QWidget):
         self.fm_button.clicked.connect(self.show_FM_commands)
         self.clear_button.clicked.connect(lambda: self.clear_console())
 
-        main_layout.addWidget(self.test_button, 0, 0, 1, 1)
-        main_layout.addWidget(self.hk_button, 0, 1, 1, 1)
-        main_layout.addWidget(self.fm_button, 0, 2, 1, 1)
-        main_layout.addWidget(self.sweep_tables, 0, 3, 1, 1)
-        main_layout.addWidget(self.clear_button, 0, 5, 1, 1)
+        main_layout.addWidget(command_group, 0, 0, 1, 4)
+        main_layout.addWidget(self.clear_button, 0, 5, 1, 1, Qt.AlignBottom)
 
         main_layout.addWidget(splitter1, 1, 0, 1, 6)
 
@@ -199,8 +258,29 @@ class SerialApp(QWidget):
             'set_whole_swt_FPGA' : lambda: self.SetSweepLoop(),
 
             'macro_sweep' : lambda: self.start_macro_sweep(),
+
+            'get_version' : lambda: self.send_command(
+                                service_id=PUS_Service_ID.FUNCTION_MANAGEMNET_ID.value,
+                                sub_service_id=PUS_FM_Subtype_ID.FM_PERFORM_FUNCTION.value,
+                                command_data=get_GET_VERSION()),
+
+            'get_boot_metadata' : lambda: self.send_command(
+                                service_id=PUS_Service_ID.FUNCTION_MANAGEMNET_ID.value,
+                                sub_service_id=PUS_FM_Subtype_ID.FM_PERFORM_FUNCTION.value,
+                                command_data=get_GET_BOOT_METADATA()),
+
+            'get_boot_metadata_slot' : lambda: self.send_command(
+                                service_id=PUS_Service_ID.FUNCTION_MANAGEMNET_ID.value,
+                                sub_service_id=PUS_FM_Subtype_ID.FM_PERFORM_FUNCTION.value,
+                                command_data=get_GET_BOOT_METADATA(
+                                    Global_Variables.IMAGE_INDEX)),
         }
-        self.fm_window = ButtonWindow("FM commands", get_fm_buttons(callbacks))
+        self.fm_window = ButtonWindow(
+            "FM commands",
+            get_fm_buttons(callbacks),
+            parent=self,
+            initial_size=(360, 700),
+        )
         self.fm_window.show()
 
     def Enable_CB(self):
@@ -265,7 +345,7 @@ class SerialApp(QWidget):
                           command_data=get_MACRO_SWEEP_BIAS_CONFIG(Global_Variables.MACRO_SUBOP))
 
     def init_serial(self):
-        self.ser = serial.Serial('/dev/tty.usbserial-FT9JJ84E', baudrate=115200, timeout=10.0)
+        self.ser = serial.Serial('/dev/tty.usbserial-FT9JJ84E', baudrate=115200, timeout=0.1)
         self.read_thread = threading.Thread(target=self.read_serial_data, daemon=True)
         self.read_thread.start()
 
@@ -276,6 +356,11 @@ class SerialApp(QWidget):
         buffer = bytearray()
         started = False
         while True:
+            if Global_Variables.UPLOADING:
+                buffer.clear()
+                started = False
+                time.sleep(0.05)
+                continue
             byte = self.ser.read(1)
             if byte:
                 byte_value = byte[0]
@@ -284,13 +369,12 @@ class SerialApp(QWidget):
                 if started:
                     buffer.append(byte_value)
                     if byte_value == 0x00:
-                        self.messages.append(buffer)
                         hex_str = " ".join(f"0x{b:02X}" for b in buffer)
 
                         print(hex_str)
                         
                         try:
-                            decoded = cobs.decode(buffer[:-1])
+                            decoded = decode_cobs_spp_frame(buffer)
 
                             spp_header = SPP_decode(decoded[:6])
 
@@ -334,6 +418,7 @@ class SerialApp(QWidget):
                             print("")
 
                             if spp_header.packet_type == 0 and spp_header.sec_head_flag == 1:
+                                item = QListWidgetItem(f"Received: {hex_str}")
                                 if pus_header.service_id == 1:
                                     if(pus_header.subtype_id == 1):
                                         item = QListWidgetItem(f"Received: ACK ACC OK {hex_str}")  # Create a list item
@@ -348,11 +433,20 @@ class SerialApp(QWidget):
                                     elif(pus_header.subtype_id == 8):
                                         item = QListWidgetItem(f"Received: ACK FINISH FAIL {hex_str}")  # Create a list item
                                     item.setForeground(QBrush(QColor("purple")))  # Set text color to blue
+                                elif pus_header.service_id == PUS_Service_ID.FUNCTION_MANAGEMNET_ID.value \
+                                and pus_header.subtype_id == PUS_FM_Subtype_ID.FM_FUNCTION_REPORT.value:
+                                    try:
+                                        report = decode_function_report(decoded[15:-2])
+                                        item.setText(function_report_summary(report))
+                                        item.setForeground(QBrush(QColor("darkCyan")))
+                                    except ValueError as report_error:
+                                        item.setText(f"Invalid function report: {report_error}")
+                                        item.setForeground(QBrush(QColor("red")))
                                 else:
                                     # if spp_header.packet_type == 0 and pus_header.service_id == 8 and pus_header.subtype_id == 1:
                                     #     self.Sweep_Tables.Table[decoded[16]][decoded[17]] = decoded[18]<<8 | decoded[19]
-                                    item = QListWidgetItem(f"Received: {hex_str}")  # Create a list item
                                     item.setForeground(QBrush(QColor("blue")))  # Set text color to blue
+                                item.setData(Qt.UserRole, bytes(buffer))
                                 self.msg_list.addItem(item)
 
                             elif spp_header.packet_type == 0 and spp_header.sec_head_flag == 0:
@@ -362,6 +456,7 @@ class SerialApp(QWidget):
 
                                     item = QListWidgetItem(f"Received: {hex_str}")
                                     item.setForeground(QBrush(QColor("darkGray")))      # color 
+                                    item.setData(Qt.UserRole, bytes(buffer))
                                     self.msg_list.addItem(item)
 
                                     subop = decoded[7]      # check subop
@@ -376,8 +471,16 @@ class SerialApp(QWidget):
                                 else:
                                     item = QListWidgetItem(f"Received: {hex_str}")  # Create a list item
                                     item.setForeground(QBrush(QColor("red")))  # Set text color to blue
+                                    item.setData(Qt.UserRole, bytes(buffer))
                                     self.msg_list.addItem(item)
-                                    if decoded[6] == Function_ID.GET_SWT_VOL_LVL_ID.value:
+                                    if decoded[6] == Function_ID.GET_VERSION_ID.value and len(decoded) >= 10:
+                                        major, minor, patch = decoded[7], decoded[8], decoded[9]
+                                        version_text = f"Firmware Version: {major}.{minor}.{patch}"
+                                        if len(decoded) >= 11:
+                                            version_text += f"  (boot {'confirmed' if decoded[10] else 'UNCONFIRMED'})"
+                                        item.setText(version_text)
+                                        item.setForeground(QBrush(QColor("darkCyan")))
+                                    elif decoded[6] == Function_ID.GET_SWT_VOL_LVL_ID.value:
                                         table_id = decoded[7] if decoded[7] <= 2 else decoded[7]-0xF+2
                                         self.Sweep_Tables.Table[table_id][decoded[8]] = decoded[9]<<8 | decoded[10]
                                     elif decoded[6] == 0x09:
@@ -415,14 +518,16 @@ class SerialApp(QWidget):
                         started = False
 
     def show_decoded_details(self, item):
-    
-        index = self.msg_list.row(item)
-        if index >= len(self.messages):
-            return  # Handle edge cases
-        
-        raw_bytes = self.messages[index]
+        raw_bytes = item.data(Qt.UserRole)
+        if raw_bytes is None:
+            return
 
-        decoded = cobs.decode(raw_bytes[:-1])
+        try:
+            decoded = decode_cobs_spp_frame(raw_bytes)
+        except (ValueError, cobs.DecodeError) as exc:
+            self.details_edit.setText(f"Invalid packet: {exc}")
+            return
+
         spp_header = SPP_decode(decoded[:6])
         pus_header = None
 
@@ -444,7 +549,7 @@ class SerialApp(QWidget):
 
         if spp_header.sec_head_flag:
             if spp_header.packet_type == 1:
-                pus_header = PUS_TC_decode(decoded[6:15])
+                pus_header = PUS_TC_decode(decoded[6:11])
 
                 details.append("\nPUS TC Header:")
                 details.append(f"  PUS Version: {pus_header.pus_ver}")
@@ -479,6 +584,14 @@ class SerialApp(QWidget):
                     details.append(f"  Step ID: {FM_SWT_report.step_id}")
                     details.append(f"  Voltage Level: {FM_SWT_report.voltage_level}")
 
+                elif pus_header.service_id == PUS_Service_ID.FUNCTION_MANAGEMNET_ID.value \
+                and pus_header.subtype_id == PUS_FM_Subtype_ID.FM_FUNCTION_REPORT.value:
+                    try:
+                        report = decode_function_report(decoded[15:-2])
+                        details.extend(function_report_details(report))
+                    except ValueError as report_error:
+                        details.append(f"\nInvalid function report: {report_error}")
+
             else:
                 details.append("\nPUS Header: Not available or decode failed")
 
@@ -488,6 +601,13 @@ class SerialApp(QWidget):
                 details.append("\nConstant Bias Info:")
                 details.append(f"  Probe ID: {decoded[7]}")
                 details.append(f"  Voltage Level: {decoded[8] << 8 | (decoded[9])}")
+            elif decoded[6] == Function_ID.GET_VERSION_ID.value and len(decoded) >= 10:
+                details.append("\nFirmware Version:")
+                details.append(f"  Major: {decoded[7]}")
+                details.append(f"  Minor: {decoded[8]}")
+                details.append(f"  Patch: {decoded[9]}")
+                if len(decoded) >= 11:
+                    details.append(f"  Boot confirmed: {'yes' if decoded[10] else 'NO'}")
             elif decoded[6] == Function_ID.GET_SWT_VOL_LVL_ID.value:
                 details.append("\nVoltage Level In Sweep Table:")
                 details.append(f"  Table ID: {decoded[7]}")
@@ -537,7 +657,6 @@ class SerialApp(QWidget):
 
     def clear_console(self):
         self.msg_list.clear()
-        self.messages.clear()  # Also clear stored messages if needed
 
     def show_sw_table(self, index):
         plot_window = PlotWindow(self.Sweep_Tables.Table[index], self)
@@ -549,9 +668,9 @@ class SerialApp(QWidget):
         hex_str = " ".join(f"0x{b:02X}" for b in cobs_msg)
         self.ser.write(cobs_msg)
 
-        self.messages.append(cobs_msg)
         item = QListWidgetItem(f"Sent: {hex_str}")  # Create a list item
         item.setForeground(QBrush(QColor("green")))  # Set text color to blue
+        item.setData(Qt.UserRole, bytes(cobs_msg))
         self.msg_list.addItem(item)
 
 def main():
@@ -561,4 +680,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    

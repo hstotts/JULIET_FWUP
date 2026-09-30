@@ -28,6 +28,7 @@ class PUS_TEST_Subtype_ID(Enum):
 
 class PUS_FM_Subtype_ID(Enum):
     FM_PERFORM_FUNCTION                     = 1
+    FM_FUNCTION_REPORT                      = 2
 
 
 class PUS_TC_header:

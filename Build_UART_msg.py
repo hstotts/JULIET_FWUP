@@ -6,6 +6,8 @@ import signal
 import string
 import time
 import sys
+
+import Global_Variables
 from SPP import *
 from PUS import *
 
@@ -21,10 +23,10 @@ def read_uart_msg():
     started = False  # Flag to track the start of data reception
 
     while True:
-        # Yield the port to the OTA worker when an upload is in progress
-        if self.uploading:
-            time.sleep(0.01)
-            buffer  = bytearray()
+        # Pause this reader while the firmware upload worker owns the serial port.
+        if Global_Variables.UPLOADING:
+            time.sleep(0.02)
+            buffer = bytearray()
             started = False
             continue
         byte = ser1.read(1)  # Read one byte at a time

@@ -1,20 +1,73 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QLabel, QPushButton, QComboBox
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QLineEdit, QLabel,
+                             QPushButton, QComboBox, QScrollArea)
+from PyQt5.QtCore import Qt
 
 import Global_Variables
 import time
+from Flash_Slots import FLASH_SLOTS, JUMP_SLOT_IDS, format_slot_label
 
 class ButtonWindow(QWidget):
-    def __init__(self, title, buttons):
-        super().__init__()
+    def __init__(self, title, buttons, parent=None, initial_size=(300, 400)):
+        super().__init__(parent, Qt.Window)
         self.setWindowTitle(title)
-        self.setGeometry(100, 100, 300, 400)  # Adjust size and position
+        self.resize(*initial_size)
+        self._positioned = False
 
-        layout = QVBoxLayout()
-        
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+
+        button_container = QWidget()
+        button_layout = QVBoxLayout(button_container)
         for button in buttons:
-            layout.addWidget(button)
-        
-        self.setLayout(layout)
+            button_layout.addWidget(button)
+        button_layout.addStretch()
+
+        scroll_area.setWidget(button_container)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(scroll_area)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._positioned and self.parentWidget() is not None:
+            self._positioned = True
+            self._position_next_to_parent()
+
+    def _position_next_to_parent(self):
+        parent = self.parentWidget()
+        available = parent.screen().availableGeometry().adjusted(10, 10, -10, -10)
+
+        frame = self.frameGeometry()
+        frame_width = frame.width() - self.width()
+        frame_height = frame.height() - self.height()
+        self.resize(
+            min(self.width(), available.width() - frame_width),
+            min(self.height(), available.height() - frame_height),
+        )
+
+        frame = self.frameGeometry()
+        parent_frame = parent.frameGeometry()
+        gap = 20
+        right_position = parent_frame.right() + gap + 1
+        left_position = parent_frame.left() - frame.width() - gap
+
+        if left_position >= available.left():
+            left = left_position
+        elif right_position + frame.width() - 1 <= available.right():
+            left = right_position
+        else:
+            left = max(
+                available.left(),
+                min(parent_frame.left() + 40, available.right() - frame.width() + 1),
+            )
+
+        top = max(
+            available.top(),
+            min(parent_frame.top() + 30, available.bottom() - frame.height() + 1),
+        )
+
+        frame_offset = frame.topLeft() - self.pos()
+        self.move(left - frame_offset.x(), top - frame_offset.y())
 
 class InputWindow(QWidget):
     def __init__(self, description, callback):
@@ -200,47 +253,26 @@ class InputWindow(QWidget):
             self.save_button.clicked.connect(lambda: self.save_input(description, callback))
 
         elif description == "jump_to_image":
-            # Slot picker mirrors FLASH_SLOTS in FirmwareUpload.py
-            JUMP_SLOTS = {
-                1: (0x08000000, 0, "S0",   16),
-                2: (0x08004000, 0, "S1",   16),
-                3: (0x08008000, 0, "S2",   16),
-                4: (0x0800C000, 0, "S3",   16),
-                5: (0x08010000, 0, "S4",   64),
-                6: (0x08020000, 0, "S5",  128),
-                7: (0x08040000, 0, "S6",  128),
-                8: (0x08060000, 0, "S7",  128),
-                9: (0x08080000, 0, "S8",  128),
-                10: (0x080A0000, 0, "S9",  128),
-                11: (0x080C0000, 0, "S10", 128),
-                12: (0x080E0000, 0, "S11", 128),
-                13: (0x08100000, 1, "S12",  16),
-                14: (0x08104000, 1, "S13",  16),
-                15: (0x08108000, 1, "S14",  16),
-                16: (0x0810C000, 1, "S15",  16),
-                17: (0x08110000, 1, "S16",  64),
-                18: (0x08120000, 1, "S17", 128),
-                19: (0x08140000, 1, "S18", 128),
-                20: (0x08160000, 1, "S19", 128),
-                21: (0x08180000, 1, "S20", 128),
-                22: (0x081A0000, 1, "S21", 128),
-                23: (0x081C0000, 1, "S22", 128),
-                24: (0x081E0000, 1, "S23", 128),
-            }
+            self.jump_slots = FLASH_SLOTS
             self.input_1_label = QLabel("Target slot:")
             self.input_1_box = QComboBox()
-            for slot_idx, (addr, bank, sec, size_kb) in sorted(JUMP_SLOTS.items()):
-                self.input_1_box.addItem(
-                    f"Slot {slot_idx:2d}  {sec:3s}  {size_kb:3d} KB  "
-                    f"Bank{bank + 1}  @ 0x{addr:08X}",
-                    userData=slot_idx,
-                )
+            for slot_idx in JUMP_SLOT_IDS:
+                self.input_1_box.addItem(format_slot_label(slot_idx), userData=slot_idx)
             self.save_button = QPushButton("Jump")
-
             layout.addWidget(self.input_1_label)
             layout.addWidget(self.input_1_box)
             layout.addWidget(self.save_button)
+            self.save_button.clicked.connect(lambda: self.save_input(description, callback))
 
+        elif description == "get_boot_metadata_slot":
+            self.input_1_label = QLabel("Metadata slot:")
+            self.input_1_box = QComboBox()
+            for slot_idx in sorted(FLASH_SLOTS):
+                self.input_1_box.addItem(format_slot_label(slot_idx), userData=slot_idx)
+            self.save_button = QPushButton("Get Metadata")
+            layout.addWidget(self.input_1_label)
+            layout.addWidget(self.input_1_box)
+            layout.addWidget(self.save_button)
             self.save_button.clicked.connect(lambda: self.save_input(description, callback))
         
 
@@ -401,6 +433,12 @@ class InputWindow(QWidget):
                 callback()
 
             elif description == "jump_to_image":
+                slot_idx = self.input_1_box.currentData()
+                Global_Variables.IMAGE_INDEX = slot_idx
+                Global_Variables.FLASH_ADDR = self.jump_slots[slot_idx][0]
+                callback()
+
+            elif description == "get_boot_metadata_slot":
                 Global_Variables.IMAGE_INDEX = self.input_1_box.currentData()
                 callback()
 
@@ -427,4 +465,3 @@ class InputWindow(QWidget):
 
         except ValueError:
             print("Invalid input. Please enter a valid number")
-
